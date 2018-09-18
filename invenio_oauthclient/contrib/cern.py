@@ -171,6 +171,23 @@ def find_remote_by_client_id(client_id):
             return remote
 
 
+def should_refresh_groups(extra_data_updated=None, refresh_timedelta=None):
+    """Check if updating the groups is needed."""
+    updated = datetime.utcnow()
+    modified_since = updated
+    if refresh_timedelta is not None:
+        modified_since += refresh_timedelta
+    modified_since = modified_since.isoformat()
+    if updated is None:
+        updated = modified_since
+    last_update = extra_data_updated
+
+    if last_update > modified_since:
+        return False
+
+    return True
+
+
 def fetch_groups(groups):
     """Prepare list of allowed group names.
 
@@ -262,6 +279,45 @@ def get_dict_from_response(response):
     return result
 
 
+def get_user_resources_ldap(user):
+    import ldap
+    from flask import jsonify
+    # assert not isinstance(user, AnonymousUser)
+
+    query=user.email
+
+    if not query:
+        return jsonify([])
+
+    lc = ldap.initialize('ldap://xldap.cern.ch')
+    lc.search_ext(
+        'OU=Users,OU=Organic Units,DC=cern,DC=ch',
+        ldap.SCOPE_ONELEVEL,
+        'mail=*{}*'.format(query),
+        # rf,
+        ['memberOf', 'mail', 'uidNumber', 'displayName'],
+        serverctrls=[ldap.controls.SimplePagedResultsControl(
+            True, size=20, cookie='')]
+    )
+
+    res = lc.result()[1]
+    res = res[0][1]
+
+    groups = []
+    if res['mail'][0] == user.email:
+        for group in res['memberOf']:
+            group = group.split(',')[0]
+            group = group.split('=')[1]
+            groups.append(group)
+
+    return {
+        'groups': groups,
+        'email': user.email,
+        'cern_uid': res['uidNumber'][0],
+        'name': res['displayName'][0]
+    }
+
+
 def get_resource(remote):
     """Query CERN Resources to get user info and groups."""
     cached_resource = session.pop('cern_resource', None)
@@ -269,9 +325,21 @@ def get_resource(remote):
         return cached_resource
 
     response = remote.get(REMOTE_APP_RESOURCE_API_URL)
-    dict_response = get_dict_from_response(response)
-    session['cern_resource'] = dict_response
-    return dict_response
+
+    if response.status == 200:
+        dict_response = get_dict_from_response(response)
+        session['cern_resource'] = dict_response
+        return dict_response
+    else:
+        response = get_user_resources_ldap(current_user)
+        r = {}
+        r['EmailAddress'] = [response['email']]
+        r['uidNumber'] = [response['cern_uid']]
+        r['CommonName'] = [response['name']]
+        r['DisplayName'] = [response['name']]
+        r['Group'] = response['groups']
+
+        return r
 
 
 def account_info(remote, resp):
@@ -348,21 +416,26 @@ def on_identity_changed(sender, identity):
         user_id=current_user.get_id(),
         client_id=client_id,
     )
-    groups = []
+
     if account:
-        remote = find_remote_by_client_id(client_id)
-        resource = get_resource(remote)
-        refresh = current_app.config.get(
+        groups = account.extra_data.get('groups', [])
+
+        resources_last_updated = account.extra_data.get('updated', None)
+        refresh_timedelta = current_app.config.get(
             'OAUTHCLIENT_CERN_REFRESH_TIMEDELTA',
             OAUTHCLIENT_CERN_REFRESH_TIMEDELTA
         )
 
-        groups.extend(
-            account_groups_and_extra_data(account, resource,
-                                          refresh_timedelta=refresh)
-        )
+        if should_refresh_groups(resources_last_updated, refresh_timedelta):
+            remote = find_remote_by_client_id(client_id)
+            resource = get_resource(remote)
 
-    extend_identity(identity, groups)
+            groups.extend(
+                account_groups_and_extra_data(account, resource,
+                                              refresh_timedelta=refresh_timedelta)
+            )
+
+        extend_identity(identity, groups)
 
 
 @identity_loaded.connect
