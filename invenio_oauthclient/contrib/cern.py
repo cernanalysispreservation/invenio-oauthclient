@@ -385,21 +385,20 @@ def account_setup(remote, token, resp):
     """Perform additional setup after user have been logged in."""
     resource = get_resource(remote)
 
-    with db.session.begin_nested():
-        external_id = resource['uidNumber'][0]
+    external_id = resource['uidNumber'][0]
 
-        # Set CERN person ID in extra_data.
-        token.remote_account.extra_data = {
-            'external_id': external_id,
-        }
-        groups = account_groups_and_extra_data(token.remote_account, resource)
-        assert not isinstance(g.identity, AnonymousIdentity)
-        extend_identity(g.identity, groups)
+    # Set CERN person ID in extra_data.
+    token.remote_account.extra_data = {
+        'external_id': external_id,
+    }
+    groups = account_groups_and_extra_data(token.remote_account, resource)
+    assert not isinstance(g.identity, AnonymousIdentity)
+    extend_identity(g.identity, groups)
 
-        user = token.remote_account.user
+    user = token.remote_account.user
 
-        # Create user <-> external id link.
-        oauth_link_external_id(user, dict(id=external_id, method='cern'))
+    # Create user <-> external id link.
+    oauth_link_external_id(user, dict(id=external_id, method='cern'))
 
 
 @identity_changed.connect
