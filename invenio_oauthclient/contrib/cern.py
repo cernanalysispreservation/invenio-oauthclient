@@ -237,12 +237,13 @@ def account_groups(account, resource, refresh_timedelta=None):
     """Fetch account groups from resource if necessary."""
     updated = datetime.utcnow()
 
-    with db.session.begin_nested():
-        groups = fetch_groups(resource['Group'])
-        account.extra_data.update(
-            groups=groups,
-            updated=updated.isoformat(),
-        )
+    groups = fetch_groups(resource['Group'])
+    account.extra_data.update(
+        groups=groups,
+        updated=updated.isoformat(),
+    )
+
+    db.session.commit()
 
     return groups
 
@@ -393,22 +394,20 @@ def account_setup(remote, token, resp):
     """Perform additional setup after user have been logged in."""
     resource = get_resource(remote)
 
-    with db.session.begin_nested():
-        person_id = resource.get('PersonID', [None])
-        external_id = resource.get('uidNumber', person_id)[0]
+    external_id = resource['uidNumber'][0]
 
-        # Set CERN person ID in extra_data.
-        token.remote_account.extra_data = {
-            'external_id': external_id,
-        }
-        groups = account_groups_and_extra_data(token.remote_account, resource)
-        assert not isinstance(g.identity, AnonymousIdentity)
-        extend_identity(g.identity, groups)
+    # Set CERN person ID in extra_data.
+    token.remote_account.extra_data = {
+        'external_id': external_id,
+    }
+    groups = account_groups(token.remote_account, resource)
+    assert not isinstance(g.identity, AnonymousIdentity)
+    extend_identity(g.identity, groups)
 
-        user = token.remote_account.user
+    user = token.remote_account.user
 
-        # Create user <-> external id link.
-        oauth_link_external_id(user, dict(id=external_id, method='cern'))
+    # Create user <-> external id link.
+    oauth_link_external_id(user, dict(id=external_id, method='cern'))
 
 
 @identity_changed.connect
