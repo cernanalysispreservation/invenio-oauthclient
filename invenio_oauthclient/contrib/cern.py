@@ -259,7 +259,7 @@ def get_user_resources_ldap(user):
     from flask import jsonify
     # assert not isinstance(user, AnonymousUser)
 
-    query=user.email
+    query = user.email
 
     if not query:
         return jsonify([])
@@ -275,21 +275,26 @@ def get_user_resources_ldap(user):
             True, size=20, cookie='')]
     )
 
-    res = lc.result()[1]
-    res = res[0][1]
-
     groups = []
-    if res['mail'][0] == user.email:
-        for group in res['memberOf']:
-            group = group.split(',')[0]
-            group = group.split('=')[1]
-            groups.append(group)
+
+    try:
+        res = lc.result()
+        res = res[1]
+        res = res[0][1]
+        mail = res['mail'][0]
+        if mail.decode("utf-8") == user.email:
+            for group in res['memberOf']:
+                group = group.split(b',')[0]
+                group = group.split(b'=')[1]
+                groups.append(group.decode("utf-8"))
+    except (IndexError, TypeError):
+        pass
 
     return {
         'groups': groups,
-        'email': user.email,
-        'cern_uid': res['uidNumber'][0],
-        'name': res['displayName'][0]
+        # 'email': user.email,
+        # 'cern_uid': res['uidNumber'][0],
+        # 'name': res['displayName'][0]
     }
 
 
@@ -300,7 +305,6 @@ def get_resource(remote):
         return cached_resource
 
     response = remote.get(REMOTE_APP_RESOURCE_API_URL)
-
     if response.status == 200:
         dict_response = get_dict_from_response(response)
         session['cern_resource'] = dict_response
@@ -308,10 +312,10 @@ def get_resource(remote):
     else:
         response = get_user_resources_ldap(current_user)
         r = {}
-        r['EmailAddress'] = [response['email']]
-        r['uidNumber'] = [response['cern_uid']]
-        r['CommonName'] = [response['name']]
-        r['DisplayName'] = [response['name']]
+        # r['EmailAddress'] = [response['email']]
+        # r['uidNumber'] = [response['cern_uid']]
+        # r['CommonName'] = [response['name']]
+        # r['DisplayName'] = [response['name']]
         r['Group'] = response['groups']
 
         return r
