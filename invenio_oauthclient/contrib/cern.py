@@ -351,7 +351,8 @@ def account_info(remote, resp):
     resource = get_resource(remote)
 
     email = resource['EmailAddress'][0]
-    external_id = resource['uidNumber'][0]
+    person_id = resource.get('PersonID', [None])
+    external_id = resource.get('uidNumber', person_id)[0]
     nice = resource['CommonName'][0]
     name = resource['DisplayName'][0]
 
@@ -389,7 +390,8 @@ def account_setup(remote, token, resp):
     """Perform additional setup after user have been logged in."""
     resource = get_resource(remote)
 
-    external_id = resource['uidNumber'][0]
+    person_id = resource.get('PersonID', [None])
+    external_id = resource.get('uidNumber', person_id)[0]
 
     # Set CERN person ID in extra_data.
     token.remote_account.extra_data = {
