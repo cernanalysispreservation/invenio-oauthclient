@@ -87,6 +87,8 @@ from invenio_oauthclient.proxies import current_oauthclient
 from invenio_oauthclient.utils import oauth_link_external_id, \
     oauth_unlink_external_id
 
+from invenio_oauthclient.contrib.serializers import CERNUserInfoSchema
+
 OAUTHCLIENT_CERN_HIDDEN_GROUPS = (
     'All Exchange People',
     'CERN Users',
@@ -210,21 +212,6 @@ def should_refresh_groups(extra_data_updated=None, refresh_timedelta=None):
     return True
 
 
-def account_groups(account, resource, refresh_timedelta=None):
-    """Fetch account groups from resource if necessary."""
-    updated = datetime.utcnow()
-
-    groups = fetch_groups(resource['Group'])
-    account.extra_data.update(
-        groups=groups,
-        updated=updated.isoformat(),
-    )
-
-    db.session.commit()
-
-    return groups
-
-
 def extend_identity(identity, groups):
     """Extend identity with roles based on CERN groups."""
     provides = set([UserNeed(current_user.email)] + [
@@ -276,6 +263,7 @@ def get_user_resources_ldap(user):
     )
 
     groups = []
+    res = {}
 
     try:
         res = lc.result()
@@ -291,10 +279,10 @@ def get_user_resources_ldap(user):
         pass
 
     return {
-        'groups': groups,
-        # 'email': user.email,
-        # 'cern_uid': res['uidNumber'][0],
-        # 'name': res['displayName'][0]
+        'Group': groups,
+        'EmailAddress': user.email,
+        'uidNumber': res.get('uidNumber', [None])[0],
+        'DisplayName': res.get('displayName', [None])[0],
     }
 
 
@@ -311,32 +299,21 @@ def get_resource(remote):
         return dict_response
     else:
         response = get_user_resources_ldap(current_user)
-        r = {}
-        # r['EmailAddress'] = [response['email']]
-        # r['uidNumber'] = [response['cern_uid']]
-        # r['CommonName'] = [response['name']]
-        # r['DisplayName'] = [response['name']]
-        r['Group'] = response['groups']
-
-        return r
+        return response
 
 
 def account_info(remote, resp):
     """Retrieve remote account information used to find local user."""
     resource = get_resource(remote)
-
-    email = resource['EmailAddress'][0]
-    person_id = resource.get('PersonID', [None])
-    external_id = resource.get('uidNumber', person_id)[0]
-    nice = resource['CommonName'][0]
-    name = resource['DisplayName'][0]
+    extra_data = CERNUserInfoSchema().dump(resource).data
 
     return dict(
         user=dict(
-            email=email.lower(),
-            profile=dict(username=nice, full_name=name),
+            email=extra_data['email'].lower(),
+            profile=extra_data['profile']
         ),
-        external_id=external_id, external_method='cern',
+        external_id=extra_data['external_id'],
+        external_method='cern',
         active=True
     )
 
@@ -365,21 +342,22 @@ def account_setup(remote, token, resp):
     """Perform additional setup after user have been logged in."""
     resource = get_resource(remote)
 
-    person_id = resource.get('PersonID', [None])
-    external_id = resource.get('uidNumber', person_id)[0]
+    extra_data = CERNUserInfoSchema().dump(resource).data
+    extra_data.update(updated=datetime.utcnow().isoformat())
 
-    # Set CERN person ID in extra_data.
-    token.remote_account.extra_data = {
-        'external_id': external_id,
-    }
-    groups = account_groups(token.remote_account, resource)
+    token.remote_account.extra_data = extra_data
+    db.session.commit()
+
     assert not isinstance(g.identity, AnonymousIdentity)
-    extend_identity(g.identity, groups)
+    extend_identity(g.identity, extra_data['groups'])
 
     user = token.remote_account.user
 
     # Create user <-> external id link.
-    oauth_link_external_id(user, dict(id=external_id, method='cern'))
+    oauth_link_external_id(user, dict(
+        id=extra_data['external_id'],
+        method='cern'
+    ))
 
 
 @identity_changed.connect
@@ -410,9 +388,14 @@ def on_identity_changed(sender, identity):
             remote = find_remote_by_client_id(client_id)
             resource = get_resource(remote)
 
-            groups.extend(
-                account_groups(account, resource, refresh_timedelta=refresh_timedelta)
+            extra_data = CERNUserInfoSchema().dump(resource).data
+            groups = extra_data['groups']
+
+            account.extra_data.update(
+                groups=groups,
+                updated=datetime.utcnow().isoformat()
             )
+            db.session.commit()
 
         extend_identity(identity, groups)
 
