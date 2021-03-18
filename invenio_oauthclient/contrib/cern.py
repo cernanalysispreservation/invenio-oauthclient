@@ -138,7 +138,7 @@ import re
 from datetime import datetime, timedelta
 
 import ldap
-from flask import Blueprint, current_app, g, redirect, session, url_for, jsonify
+from flask import abort, Blueprint, current_app, g, redirect, session, url_for, jsonify
 from flask_login import current_user
 from flask_principal import AnonymousIdentity, RoleNeed, UserNeed, \
     identity_changed, identity_loaded
@@ -261,11 +261,20 @@ REMOTE_APP_RESOURCE_API_URL = 'https://oauthresource.web.cern.ch/api/Me'
 REMOTE_APP_RESOURCE_SCHEMA = 'http://schemas.xmlsoap.org/claims/'
 
 LDAP_USER_RESP_FIELDS = [
-    'uidNumber'
-    'cn',
-    'displayName',
     'memberOf',
-    'department'
+    'displayName',
+    'department',
+    'name',
+    'description',
+    'uidNumber',
+    'employeeID',
+    'postOfficeBox',
+    'gidNumber',
+    'mail',
+    'physicalDeliveryOfficeName',
+    'cernInstituteName',
+    'cernSection',
+    'division',
 ]
 
 cern_oauth_blueprint = Blueprint('cern_oauth', __name__)
@@ -434,9 +443,14 @@ def get_user_resources_ldap(user):
         'Group': groups,
         'EmailAddress': [user.email],
         'uidNumber': get_ldap_field_str(res, 'uidNumber'),
-        'DisplayName': get_ldap_field_str(res, 'displayName'),
         'CommonName': get_ldap_field_str(res, 'cn'),
-        'Department': get_ldap_field_str(res, 'department')
+        'Firstname': get_ldap_field_str(res, 'displayName'),
+        'Lastname': get_ldap_field_str(res, 'displayName'),
+        'DisplayName': get_ldap_field_str(res, 'displayName'),
+        'Building': get_ldap_field_str(res, 'physicalDeliveryOfficeName'),
+        'Department': get_ldap_field_str(res, 'department'),
+        'PersonID': get_ldap_field_str(res, 'employeeID'),
+        'IdentityClass': get_ldap_field_str(res, 'department')
     }
 
 
@@ -450,9 +464,10 @@ def get_resource(remote):
     if response.status == 200:
         dict_response = get_dict_from_response(response)
         session['cern_resource'] = dict_response
-    else:
+    elif current_user.is_authenticated:
         dict_response = get_user_resources_ldap(current_user)
-
+    else:
+        abort(400)
     return dict_response
 
 
@@ -470,7 +485,7 @@ def _account_info(remote, resp):
             'Identity class {0} is not one of [{1}]'.format(
                 identity_class, ''.join(valid_identities)), remote, resp, )
 
-    email = resource['EmailAddress'][0]
+    email = resource.get('EmailAddress', [None])[0]
     person_id = resource.get('PersonID', [None])
     external_id = resource.get('uidNumber', person_id)[0]
 
