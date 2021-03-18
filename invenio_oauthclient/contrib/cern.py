@@ -76,7 +76,8 @@ import copy
 import re
 from datetime import datetime, timedelta
 
-from flask import current_app, g, redirect, session, url_for
+import ldap
+from flask import current_app, g, redirect, session, url_for, jsonify
 from flask_login import current_user
 from flask_principal import AnonymousIdentity, RoleNeed, UserNeed, \
     identity_changed, identity_loaded
@@ -163,6 +164,14 @@ REMOTE_SANDBOX_APP['params'].update(dict(
 REMOTE_APP_RESOURCE_API_URL = 'https://oauthresource.web.cern.ch/api/Me'
 REMOTE_APP_RESOURCE_SCHEMA = 'http://schemas.xmlsoap.org/claims/'
 
+LDAP_USER_RESP_FIELDS = [
+    'uidNumber'
+    'cn',
+    'displayName',
+    'memberOf',
+    'department'
+]
+
 
 def find_remote_by_client_id(client_id):
     """Return a remote application based with given client ID."""
@@ -223,18 +232,9 @@ def fetch_extra_data(resource):
     )
 
 
-def account_groups_and_extra_data(account, resource,
-                                  refresh_timedelta=None):
+def account_groups_and_extra_data(account, resource, refresh_timedelta=None):
     """Fetch account groups and extra data from resource if necessary."""
     updated = datetime.utcnow()
-    modified_since = updated
-    if refresh_timedelta is not None:
-        modified_since += refresh_timedelta
-    modified_since = modified_since.isoformat()
-    last_update = account.extra_data.get('updated', modified_since)
-
-    if last_update > modified_since:
-        return account.extra_data.get('groups', [])
 
     groups = fetch_groups(resource['Group'])
     extra_data = current_app.config.get(
@@ -249,7 +249,6 @@ def account_groups_and_extra_data(account, resource,
     )
 
     db.session.commit()
-
     return groups
 
 
@@ -283,9 +282,9 @@ def get_dict_from_response(response):
 
 
 def get_user_resources_ldap(user):
-    import ldap
-    from flask import jsonify
-    # assert not isinstance(user, AnonymousUser)
+    def get_ldap_field_str(res, key):
+        value = res.get(key, [None])[0]
+        return [value.decode("utf-8")] if value else [None]
 
     query = user.email
 
@@ -298,12 +297,13 @@ def get_user_resources_ldap(user):
         ldap.SCOPE_ONELEVEL,
         'mail=*{}*'.format(query),
         # rf,
-        ['memberOf', 'mail', 'uidNumber', 'displayName'],
+        LDAP_USER_RESP_FIELDS,
         serverctrls=[ldap.controls.SimplePagedResultsControl(
             True, size=20, cookie='')]
     )
 
     groups = []
+    res = {}
 
     try:
         res = lc.result()
@@ -319,10 +319,12 @@ def get_user_resources_ldap(user):
         pass
 
     return {
-        'groups': groups,
-        # 'email': user.email,
-        # 'cern_uid': res['uidNumber'][0],
-        # 'name': res['displayName'][0]
+        'Group': groups,
+        'EmailAddress': [user.email],
+        'uidNumber': get_ldap_field_str(res, 'uidNumber'),
+        'DisplayName': get_ldap_field_str(res, 'displayName'),
+        'CommonName': get_ldap_field_str(res, 'cn'),
+        'Department': get_ldap_field_str(res, 'department')
     }
 
 
@@ -336,17 +338,10 @@ def get_resource(remote):
     if response.status == 200:
         dict_response = get_dict_from_response(response)
         session['cern_resource'] = dict_response
-        return dict_response
     else:
-        response = get_user_resources_ldap(current_user)
-        r = {}
-        # r['EmailAddress'] = [response['email']]
-        # r['uidNumber'] = [response['cern_uid']]
-        # r['CommonName'] = [response['name']]
-        # r['DisplayName'] = [response['name']]
-        r['Group'] = response['groups']
+        dict_response = get_user_resources_ldap(current_user)
 
-        return r
+    return dict_response
 
 
 def account_info(remote, resp):
@@ -356,13 +351,16 @@ def account_info(remote, resp):
     email = resource['EmailAddress'][0]
     person_id = resource.get('PersonID', [None])
     external_id = resource.get('uidNumber', person_id)[0]
-    nice = resource['CommonName'][0]
-    name = resource['DisplayName'][0]
+
+    extra_data = current_app.config.get(
+        'OAUTHCLIENT_CERN_EXTRA_DATA_SERIALIZER',
+        fetch_extra_data
+    )(resource)
 
     return dict(
         user=dict(
             email=email.lower(),
-            profile=dict(username=nice, full_name=name),
+            profile=extra_data,
         ),
         external_id=external_id, external_method='cern',
         active=True
@@ -393,22 +391,21 @@ def account_setup(remote, token, resp):
     """Perform additional setup after user have been logged in."""
     resource = get_resource(remote)
 
-    with db.session.begin_nested():
-        person_id = resource.get('PersonID', [None])
-        external_id = resource.get('uidNumber', person_id)[0]
+    person_id = resource.get('PersonID', [None])
+    external_id = resource.get('uidNumber', person_id)[0]
 
-        # Set CERN person ID in extra_data.
-        token.remote_account.extra_data = {
-            'external_id': external_id,
-        }
-        groups = account_groups_and_extra_data(token.remote_account, resource)
-        assert not isinstance(g.identity, AnonymousIdentity)
-        extend_identity(g.identity, groups)
+    # Set CERN person ID in extra_data.
+    token.remote_account.extra_data = {
+        'external_id': external_id,
+    }
+    groups = account_groups_and_extra_data(token.remote_account, resource)
+    assert not isinstance(g.identity, AnonymousIdentity)
+    extend_identity(g.identity, groups)
 
-        user = token.remote_account.user
+    user = token.remote_account.user
 
-        # Create user <-> external id link.
-        oauth_link_external_id(user, dict(id=external_id, method='cern'))
+    # Create user <-> external id link.
+    oauth_link_external_id(user, dict(id=external_id, method='cern'))
 
 
 @identity_changed.connect
