@@ -77,6 +77,7 @@ def login(remote_app):
         '.authorized',
         remote_app=remote_app,
         _external=True,
+        _scheme="https"
     )
 
     # Create a JSON Web Token that expires after OAUTHCLIENT_STATE_EXPIRES
