@@ -287,7 +287,7 @@ def account_groups_and_extra_data(account, resource, refresh_timedelta=None):
 def extend_identity(identity, groups):
     """Extend identity with roles based on CERN groups."""
     provides = set([UserNeed(current_user.email)] + [
-        RoleNeed('{0}@cern.ch'.format(name)) for name in groups
+        RoleNeed('{0}@cern.ch'.format(name.lower())) for name in groups
     ])
     identity.provides |= provides
     session[OAUTHCLIENT_CERN_SESSION_KEY] = provides
