@@ -65,7 +65,7 @@ install_requires = [
     'Flask-OAuthlib>=0.9.6',
     'invenio-accounts>=2.0.0',
     'invenio-base>=1.2.11',
-    'invenio-i18n>=1.3.1',
+    'invenio-i18n<1.2.0',
     'invenio-mail>=1.0.2',
     'invenio-theme>=1.3.12',
     'oauthlib>=1.1.2,<3.0.0',
