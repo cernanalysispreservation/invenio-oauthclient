@@ -345,7 +345,7 @@ def authorized_signup_handler(resp, remote, *args, **kwargs):
     next_url = get_session_next_url(remote.name)
     if next_url:
         return redirect(next_url)
-    return redirect(url_for('invenio_oauthclient_settings.index'))
+    return redirect("/")
 
 
 def disconnect_handler(remote, *args, **kwargs):

@@ -59,9 +59,9 @@ def _add_created_updated_columns(table, date):
         sa.Column('updated', sa.DateTime()))
 
     op.execute(text('UPDATE ' + table + ' SET created= :date')
-               .bindparams(date=date), params)
+               .bindparams(date=date))
     op.execute(text('UPDATE ' + table + ' SET updated= :date')
-               .bindparams(date=date), params)
+               .bindparams(date=date))
 
     op.alter_column(table, 'created',
                     existing_type=sa.DateTime,
