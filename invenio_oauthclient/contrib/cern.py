@@ -423,43 +423,43 @@ def account_setup(remote, token, resp):
     oauth_link_external_id(user, dict(id=external_id, method='cern'))
 
 
-@identity_changed.connect
-def on_identity_changed(sender, identity):
-    """Store groups in session whenever identity changes.
+# @identity_changed.connect
+# def on_identity_changed(sender, identity):
+#     """Store groups in session whenever identity changes.
 
-    :param identity: The user identity where information are stored.
-    """
-    if isinstance(identity, AnonymousIdentity):
-        return
+#     :param identity: The user identity where information are stored.
+#     """
+#     if isinstance(identity, AnonymousIdentity):
+#         return
 
-    client_id = current_app.config['CERN_APP_CREDENTIALS']['consumer_key']
-    account = RemoteAccount.get(
-        user_id=current_user.get_id(),
-        client_id=client_id,
-    )
+#     client_id = current_app.config['CERN_APP_CREDENTIALS']['consumer_key']
+#     account = RemoteAccount.get(
+#         user_id=current_user.get_id(),
+#         client_id=client_id,
+#     )
 
-    if account:
-        groups = account.extra_data.get('groups', [])
+#     if account:
+#         groups = account.extra_data.get('groups', [])
 
-        resources_last_updated = account.extra_data.get('updated', None)
-        refresh_timedelta = current_app.config.get(
-            'OAUTHCLIENT_CERN_REFRESH_TIMEDELTA',
-            OAUTHCLIENT_CERN_REFRESH_TIMEDELTA
-        )
+#         resources_last_updated = account.extra_data.get('updated', None)
+#         refresh_timedelta = current_app.config.get(
+#             'OAUTHCLIENT_CERN_REFRESH_TIMEDELTA',
+#             OAUTHCLIENT_CERN_REFRESH_TIMEDELTA
+#         )
 
-        if should_refresh_groups(resources_last_updated, refresh_timedelta):
-            remote = find_remote_by_client_id(client_id)
-            resource = get_resource(remote)
+#         if should_refresh_groups(resources_last_updated, refresh_timedelta):
+#             remote = find_remote_by_client_id(client_id)
+#             resource = get_resource(remote)
 
-            groups.extend(
-                account_groups_and_extra_data(account, resource,
-                                              refresh_timedelta=refresh_timedelta)
-            )
+#             groups.extend(
+#                 account_groups_and_extra_data(account, resource,
+#                                               refresh_timedelta=refresh_timedelta)
+#             )
 
-        extend_identity(identity, groups)
+#         extend_identity(identity, groups)
 
 
-@identity_loaded.connect
-def on_identity_loaded(sender, identity):
-    """Store groups in session whenever identity is loaded."""
-    identity.provides.update(session.get(OAUTHCLIENT_CERN_SESSION_KEY, []))
+# @identity_loaded.connect
+# def on_identity_loaded(sender, identity):
+#     """Store groups in session whenever identity is loaded."""
+#     identity.provides.update(session.get(OAUTHCLIENT_CERN_SESSION_KEY, []))
