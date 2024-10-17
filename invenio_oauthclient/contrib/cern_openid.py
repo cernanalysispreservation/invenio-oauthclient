@@ -81,6 +81,8 @@ from invenio_oauthclient.proxies import current_oauthclient
 from invenio_oauthclient.utils import oauth_link_external_id, \
     oauth_unlink_external_id
 
+from invenio_oauthclient.contrib.cern import get_user_resources_ldap
+
 OAUTHCLIENT_CERN_OPENID_REFRESH_TIMEDELTA = timedelta(minutes=-1)
 """Default interval for refreshing CERN extra data (e.g. groups)."""
 
@@ -245,6 +247,21 @@ def get_dict_from_response(response):
         result.setdefault(key, value)
     return result
 
+def serialized_get_user_resources_ldap(user):
+    data = get_user_resources_ldap(user)
+
+    return {
+        "email": data.get("EmailAddress"),
+        "groups": data.get("Group", []),
+        "cern_roles": current_app.config.get(
+            "OAUTHCLIENT_CERN_OPENID_ALLOWED_ROLES",
+            OAUTHCLIENT_CERN_OPENID_ALLOWED_ROLES,
+        ),
+        "cern_person_id": data.get("PersonID"),
+        "cern_upn": data.get("CommonName"),
+        "preferred_username": data.get("uidNumber"),
+        "name": data.get("DisplayName"),
+    }
 
 def get_resource(remote, token_response=None):
     """Query CERN Resources to get user info and roles."""
@@ -253,15 +270,29 @@ def get_resource(remote, token_response=None):
         return cached_resource
 
     response = remote.get(REMOTE_APP_RESOURCE_API_URL)
-    dict_response = get_dict_from_response(response)
-    if token_response:
-        decoding_params = current_app.config.get(
-            "OAUTHCLIENT_CERN_OPENID_JWT_TOKEN_DECODE_PARAMS",
-            OAUTHCLIENT_CERN_OPENID_JWT_TOKEN_DECODE_PARAMS,
-        )
-        token_data = decode(token_response["access_token"], **decoding_params)
-        dict_response.update(token_data)
-    session["cern_resource"] = dict_response
+    if response.status == 200:
+        dict_response = get_dict_from_response(response)
+        if token_response:
+            decoding_params = current_app.config.get(
+                "OAUTHCLIENT_CERN_OPENID_JWT_TOKEN_DECODE_PARAMS",
+                OAUTHCLIENT_CERN_OPENID_JWT_TOKEN_DECODE_PARAMS,
+            )
+            token_data = decode(token_response["access_token"], **decoding_params)
+            dict_response.update(token_data)
+        session['cern_resource'] = dict_response
+    elif current_user.is_authenticated:
+        dict_response = serialized_get_user_resources_ldap(current_user)
+    else:
+        abort(400)
+    # dict_response = get_dict_from_response(response)
+    # if token_response:
+    #     decoding_params = current_app.config.get(
+    #         "OAUTHCLIENT_CERN_OPENID_JWT_TOKEN_DECODE_PARAMS",
+    #         OAUTHCLIENT_CERN_OPENID_JWT_TOKEN_DECODE_PARAMS,
+    #     )
+    #     token_data = decode(token_response["access_token"], **decoding_params)
+    #     dict_response.update(token_data)
+    # session["cern_resource"] = dict_response
     return dict_response
 
 
