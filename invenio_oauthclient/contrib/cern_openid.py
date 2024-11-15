@@ -64,6 +64,7 @@ In templates you can add a sign in/up link:
     </a>
 """
 
+import json
 from datetime import datetime, timedelta
 
 from flask import Blueprint, current_app, flash, g, redirect, session, url_for
@@ -197,7 +198,7 @@ def account_roles_and_extra_data(account, resource, refresh_timedelta=None):
         return account.extra_data.get("roles", [])
 
 
-    roles = resource["cern_roles"] + resource["groups"]
+    roles = resource.get("cern_roles", []) + resource.get("groups", [])
     extra_data = current_app.config.get(
         "OAUTHCLIENT_CERN_OPENID_EXTRA_DATA_SERIALIZER", fetch_extra_data
     )(resource)
@@ -277,13 +278,9 @@ def _account_info(remote, resp):
 
 
     if cern_roles is None or not set(cern_roles).issubset(valid_roles):
-        raise OAuthCERNRejectedAccountError(
-            "User roles {0} are not one of {1}".format(
-                cern_roles, valid_roles
-            ),
-            remote,
-            resp,
-        )
+        current_app.logger.warning(
+            "User roles {0} are not one of {1}".format(cern_roles, valid_roles, json.dumps(resp)),
+            exc_info=True)
 
     email = resource["email"]
     person_id = resource.get("cern_person_id")
