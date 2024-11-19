@@ -82,6 +82,8 @@ from invenio_oauthclient.proxies import current_oauthclient
 from invenio_oauthclient.utils import oauth_link_external_id, \
     oauth_unlink_external_id
 
+from invenio_oauthclient.contrib.cern import get_user_resources_ldap
+
 OAUTHCLIENT_CERN_OPENID_REFRESH_TIMEDELTA = timedelta(minutes=-1)
 """Default interval for refreshing CERN extra data (e.g. groups)."""
 
@@ -171,6 +173,20 @@ OAUTHCLIENT_CERN_OPENID_JWT_TOKEN_DECODE_PARAMS = dict(
 
 cern_oauth_blueprint = Blueprint("cern_openid_oauth", __name__)
 
+def serialized_get_user_resources_ldap(user):
+    data = get_user_resources_ldap(user)
+    return {
+        "email": data.get("EmailAddress"),
+        "groups": data.get("Group", []),
+        "cern_roles": current_app.config.get(
+            "OAUTHCLIENT_CERN_OPENID_ALLOWED_ROLES",
+            OAUTHCLIENT_CERN_OPENID_ALLOWED_ROLES,
+        ),
+        "cern_person_id": data.get("PersonID"),
+        "cern_upn": data.get("CommonName"),
+        "preferred_username": data.get("uidNumber"),
+        "name": data.get("DisplayName"),
+    }
 
 def find_remote_by_client_id(client_id):
     """Return a remote application based with given client ID."""
@@ -262,6 +278,8 @@ def get_resource(remote, token_response=None):
         )
         token_data = decode(token_response["access_token"], **decoding_params)
         dict_response.update(token_data)
+    elif current_user.is_authenticated:
+        dict_response = serialized_get_user_resources_ldap(current_user)
     session["cern_resource"] = dict_response
     return dict_response
 
